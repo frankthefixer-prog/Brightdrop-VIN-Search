@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="BrightDrop VIN">
+<title>BrightDrop VIN Checker</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111;background:#f5f6f8}
+body{margin:0;padding:24px 16px 40px}
+.wrap{max-width:640px;margin:auto}
+.card{background:#fff;border-radius:20px;padding:20px;box-shadow:0 6px 28px rgba(0,0,0,.08)}
+h1{font-size:28px;margin:0 0 6px}
+.sub{color:#666;margin:0 0 18px}
+label{font-weight:700;display:block;margin-bottom:8px}
+input{box-sizing:border-box;width:100%;font-size:20px;padding:15px;border:1px solid #bbb;border-radius:14px;text-transform:uppercase}
+button,a.btn{display:block;box-sizing:border-box;width:100%;text-align:center;margin-top:12px;padding:15px 16px;border-radius:14px;border:0;background:#111;color:#fff;font-size:18px;font-weight:700;text-decoration:none}
+button.secondary,a.secondary{background:#e9edf2;color:#111}
+.result{margin-top:18px;display:none}
+.hero{border-radius:16px;padding:16px;background:#eef7ef;margin-bottom:14px}
+.hero.std{background:#f0f1f3}.hero.ext{background:#fff4db}
+.hero h2{margin:0 0 4px;font-size:24px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.item{background:#f6f7f9;border-radius:14px;padding:12px}
+.k{font-size:12px;color:#68707b;text-transform:uppercase;font-weight:700;letter-spacing:.04em}
+.v{font-size:18px;font-weight:700;margin-top:3px}
+.note{font-size:13px;color:#666;line-height:1.4;margin-top:14px}
+.err{margin-top:14px;color:#a10000;font-weight:700}
+.live{font-size:14px;color:#555;margin-top:12px}
+footer{font-size:12px;color:#777;line-height:1.4;margin-top:18px}
+@media(max-width:430px){.grid{grid-template-columns:1fr 1fr}h1{font-size:25px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="card">
+<h1>BrightDrop VIN Checker</h1>
+<p class="sub">400/600 • battery • AWD/FWD • GVWR • range • GM sticker</p>
+
+<label for="vin">Enter 17-character VIN</label>
+<input id="vin" maxlength="17" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="2G5…">
+<button onclick="checkVin()">Decode BrightDrop VIN</button>
+
+<div id="err" class="err"></div>
+
+<div id="result" class="result">
+  <div id="hero" class="hero">
+    <h2 id="title"></h2>
+    <div id="pack"></div>
+  </div>
+  <div class="grid">
+    <div class="item"><div class="k">Model year</div><div class="v" id="year">—</div></div>
+    <div class="item"><div class="k">Drive</div><div class="v" id="drive">—</div></div>
+    <div class="item"><div class="k">GVWR</div><div class="v" id="gvwr">—</div></div>
+    <div class="item"><div class="k">Class</div><div class="v" id="cls">—</div></div>
+    <div class="item"><div class="k">Est. range</div><div class="v" id="range">—</div></div>
+    <div class="item"><div class="k">Power</div><div class="v" id="power">—</div></div>
+    <div class="item"><div class="k">Battery</div><div class="v" id="kwh">—</div></div>
+    <div class="item"><div class="k">VIN check digit</div><div class="v" id="check">—</div></div>
+  </div>
+  <div id="live" class="live"></div>
+  <a id="sticker" class="btn secondary" target="_blank" rel="noopener">Open GM Window Sticker</a>
+  <button class="secondary" onclick="copySummary()">Copy Summary</button>
+  <p class="note">Offline decoding uses the public BrightDrop Spotter VIN logic. When internet access is available, this page also asks NHTSA vPIC to confirm the build.</p>
+</div>
+
+<footer>
+Independent helper; not affiliated with GM, Chevrolet, BrightDrop or NHTSA. Verify purchase-critical details against the original GM window sticker and the vehicle itself.
+</footer>
+</div>
+</div>
+
+<script>
+const YEAR={N:2022,P:2023,R:2024,S:2025,T:2026,V:2027,W:2028};
+const BAT={
+  "6":{drive:"FWD",pack:"Standard Range",code:"ETC",hp:240,kwh:102.4},
+  "Y":{drive:"AWD",pack:"Standard Range",code:"ETC",hp:300,kwh:102.4},
+  "Z":{drive:"AWD",pack:"Max Range",code:"ETJ",hp:300,kwh:173.3},
+  "G":{drive:"AWD",pack:"Max Range",code:"ETJ",hp:300,kwh:173.3}
+};
+const RANGE={
+  2023:{ETJ:250},
+  2024:{ETC:{400:159,600:164},ETJ:272},
+  2025:{ETC:{FWD:177,AWD:179},ETJ:272},
+  2026:{ETC:176,EWU:204,ETJ:285}
+};
+const translit={A:1,B:2,C:3,D:4,E:5,F:6,G:7,H:8,J:1,K:2,L:3,M:4,N:5,P:7,R:9,S:2,T:3,U:4,V:5,W:6,X:7,Y:8,Z:9,
+"0":0,"1":1,"2":2,"3":3,"4":4,"5":5,"6":6,"7":7,"8":8,"9":9};
+const weights=[8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2];
+let currentSummary="";
+
+function norm(s){return String(s||"").toUpperCase().replace(/[^A-HJ-NPR-Z0-9]/g,"");}
+function checkDigit(v){
+  let sum=0;
+  for(let i=0;i<17;i++){ if(translit[v[i]]===undefined)return null; sum += translit[v[i]]*weights[i]; }
+  const r=sum%11; return r===10?"X":String(r);
+}
+function estRange(year,series,drive,code){
+  const e=RANGE[year]?.[code];
+  if(e==null)return null;
+  if(typeof e==="number")return e;
+  return e[series] ?? e[drive] ?? null;
+}
+async function checkVin(){
+  const err=document.getElementById("err"), res=document.getElementById("result");
+  err.textContent=""; res.style.display="none";
+  const v=norm(document.getElementById("vin").value);
+  document.getElementById("vin").value=v;
+  if(v.length!==17){err.textContent="Please enter a complete 17-character VIN.";return;}
+  const wmi=v.slice(0,3), year=YEAR[v[9]]||null, model=v[5]==="2"?"400":v[5]==="3"?"600":null;
+  const isStruct=(wmi==="2G5"||wmi==="2GC") && v[4]==="J" && ["2","3"].includes(v[5]) && ["T","H"].includes(v[6]);
+  if(!isStruct){err.textContent="This does not match the known BrightDrop VIN structure.";return;}
+  const p=BAT[v[7]]||{drive:"Unknown",pack:"Unknown",code:null,hp:null,kwh:null};
+  const gvwr=v[3]==="8"?"11,000 lb":v[3]==="Z"?"9,990 lb":"Unknown";
+  const cls=v[3]==="8"?"Class 3":v[3]==="Z"?"Class 2H":"Unknown";
+  const range=estRange(year,model,p.drive,p.code);
+  document.getElementById("title").textContent=`${year||""} BrightDrop ${model}`.trim();
+  document.getElementById("pack").textContent=`${p.pack} • ${p.drive}`;
+  const hero=document.getElementById("hero");
+  hero.className="hero"+(p.pack.includes("Standard")?" std":p.pack.includes("Extended")?" ext":"");
+  document.getElementById("year").textContent=year||"Unknown";
+  document.getElementById("drive").textContent=p.drive;
+  document.getElementById("gvwr").textContent=gvwr;
+  document.getElementById("cls").textContent=cls;
+  document.getElementById("range").textContent=range?`~${range} mi`:"—";
+  document.getElementById("power").textContent=p.hp?`${p.hp} hp`:"—";
+  document.getElementById("kwh").textContent=p.kwh?`${p.kwh} kWh`:"—";
+  const expected=checkDigit(v);
+  document.getElementById("check").textContent=expected===v[8]?"Valid":"Mismatch";
+  const sticker=document.getElementById("sticker");
+  sticker.href=`https://cws.gm.com/vs-cws/vehshop/v2/vehicle/windowsticker?vin=${encodeURIComponent(v)}&make=chevrolet`;
+  sticker.style.display=(year && year<2024)?"none":"block";
+  document.getElementById("live").textContent="Checking NHTSA vPIC…";
+  currentSummary=`${year||""} BrightDrop ${model} — ${p.pack}, ${p.drive}, ${gvwr} (${cls})${range?`, ~${range} mi range`:""}${p.hp?`, ${p.hp} hp`:""} — VIN ${v}`;
+  res.style.display="block";
+
+  try{
+    const r=await fetch(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/${v}?format=json`);
+    const j=await r.json(); const x=j?.Results?.[0];
+    if(x){
+      let bits=[];
+      if(x.Make||x.Model) bits.push(`${x.Make||""} ${x.Model||""}`.trim());
+      if(x.Series) bits.push(`Series ${x.Series}`);
+      if(x.DriveType) bits.push(x.DriveType);
+      if(x.EngineModel) bits.push(x.EngineModel);
+      document.getElementById("live").textContent="NHTSA confirmation: "+(bits.join(" • ")||"record returned");
+    }else document.getElementById("live").textContent="NHTSA did not return a confirmation record.";
+  }catch(e){
+    document.getElementById("live").textContent="Offline decode shown. NHTSA confirmation was unavailable.";
+  }
+}
+async function copySummary(){
+  try{await navigator.clipboard.writeText(currentSummary); alert("Summary copied.");}
+  catch(e){prompt("Copy this summary:",currentSummary);}
+}
+document.getElementById("vin").addEventListener("keydown",e=>{if(e.key==="Enter")checkVin();});
+</script>
+</body>
+</html>
